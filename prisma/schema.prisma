@@ -1,0 +1,27 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+model Product {
+  id              String   @id @default(cuid())
+  sku             String   @unique
+  name            String
+  sizeMl          Int
+  costBaseUsd     Decimal  @db.Decimal(10,2)
+  margin          Decimal  @db.Decimal(5,4) // 0.35 = 35%
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+model Rate {
+  id        String   @id @default(cuid())
+  raw       Decimal  @db.Decimal(14,4)   // mediana P2P USDT↔VES
+  ema       Decimal  @db.Decimal(14,4)   // suavizada para mostrar
+  source    String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

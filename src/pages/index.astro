@@ -1,0 +1,69 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { PrismaClient } from "@prisma/client";
+import { precioVES } from "../lib/pricing";
+
+const prisma = new PrismaClient();
+const BASE_URL = process.env.SITE_URL ?? "http://localhost:4321";
+
+const products = await prisma.product.findMany({ where: { active: true } });
+
+const fxRes = await fetch(`${BASE_URL}/api/fx/tasa-ves`);
+const fx = fxRes.ok ? await fxRes.json() : null;
+const tasa = fx?.ema ? Number(fx.ema) : null;
+
+const orgJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Paint Store",
+  "url": BASE_URL,
+  "logo": `${BASE_URL}/logo.svg`,
+};
+
+function fmtUsd(n: number) { return `$${n.toFixed(2)}`; }
+---
+<BaseLayout title="Catálogo — USD & VES" description="Catálogo con precios en USD y VES (tasa Binance EMA)" jsonld={orgJsonLd}>
+  <link rel="stylesheet" href="/fonts.css" />
+  <header class="container">
+    <span class="logo"></span>
+    <div>
+      <div class="badge">MVP Paso 2</div>
+      <h1>Catálogo (USD / VES)</h1>
+      <p style="color:var(--muted)">
+        {tasa
+          ? `Tasa Binance (EMA): ${tasa.toLocaleString('es-VE', { maximumFractionDigits: 2 })} VES`
+          : "Tasa no disponible"}
+      </p>
+    </div>
+  </header>
+
+  <main class="container card">
+    <table class="table">
+      <thead>
+        <tr><th>SKU</th><th>Producto</th><th>Presentación</th><th>USD</th><th>VES</th></tr>
+      </thead>
+      <tbody>
+        {products.map((p) => {
+          const usd = Number(p.costBaseUsd) * (1 + Number(p.margin));
+          const ves = tasa
+            ? precioVES({
+                costoBaseUSD: Number(p.costBaseUsd),
+                margen: Number(p.margin),
+                tasaVES: tasa,
+              })
+            : null;
+
+          return (
+            <tr>
+              <td>{p.sku}</td>
+              <td>{p.name}</td>
+              <td>{p.sizeMl} ml</td>
+              <td>{fmtUsd(usd)}</td>
+              <td>{ves ? ves.toLocaleString("es-VE") + " VES" : "—"}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  </main>
+</BaseLayout>

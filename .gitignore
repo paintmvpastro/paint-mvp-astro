@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+.pnp.cjs
+.pnp.loader.mjs
+
+# build output
+dist/
+.vercel/
+.cache/
+astro-air/
+
+# env & prisma
+.env
+.env.local
+.env.*.local
+prisma/dev.db
+
+# logs
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# editor
+.vscode/
+.DS_Store

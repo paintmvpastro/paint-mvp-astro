@@ -1,0 +1,29 @@
+---
+export interface Props {
+  title?: string;
+  description?: string;
+  canonical?: string;
+  jsonld?: any;
+}
+const { title = 'Paint Store', description = 'Pinturas de calidad — MVP', canonical = Astro.site?.toString(), jsonld } = Astro.props;
+---
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="/fonts.css" />
+    {jsonld && <script type="application/ld+json">{JSON.stringify(jsonld)}</script>}
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>
