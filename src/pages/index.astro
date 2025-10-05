@@ -5,19 +5,36 @@ import { precioVES } from "../lib/pricing";
 
 const prisma = new PrismaClient();
 
-// En prod (Vercel) toma el dominio real del request; en dev usa SITE_URL
-const ORIGIN = (Astro.url && Astro.url.origin) || process.env.SITE_URL || "";
+// En prod (Vercel) toma el dominio real; en dev usa SITE_URL
+const ORIGIN =
+  (Astro.url && Astro.url.origin) ||
+  (import.meta.env.SITE_URL as string | undefined) ||
+  "";
 
 // Productos activos
 const products = await prisma.product.findMany({ where: { active: true } });
 
-// Intento de leer tasa; si falla, mostramos “Tasa no disponible” y seguimos
+// Llamamos a la tasa (sin caché) y usamos los campos ya formateados que expone el API
 let fx: any = null;
 try {
   const fxRes = await fetch(`${ORIGIN}/api/fx/tasa-ves`, { cache: "no-store" });
   if (fxRes.ok) fx = await fxRes.json();
 } catch (_) {}
-const tasa = fx?.ema ? Number(fx.ema) : null;
+
+// Número para cálculos (EMA si existe; si no, raw)
+const tasaNum: number | null = Number.isFinite(Number(fx?.ema))
+  ? Number(fx.ema)
+  : Number.isFinite(Number(fx?.tasa))
+  ? Number(fx.tasa)
+  : null;
+
+// Texto formateado exacto: "293,10 VES/USDT"
+const tasaLabel: string | null =
+  typeof fx?.emaFmt2Usdt === "string"
+    ? fx.emaFmt2Usdt
+    : tasaNum != null
+    ? `${tasaNum.toLocaleString("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} VES/USDT`
+    : null;
 
 // AEO / JSON-LD
 const orgJsonLd = {
@@ -35,7 +52,6 @@ function fmtUsd(n: number) { return `$${n.toFixed(2)}`; }
   description="Catálogo con precios en USD y VES (tasa Binance EMA)"
   jsonld={orgJsonLd}
 >
-  <!-- Si tu fonts.css está en /public, este path funciona -->
   <link rel="stylesheet" href="/fonts.css" />
 
   <header class="container">
@@ -44,8 +60,8 @@ function fmtUsd(n: number) { return `$${n.toFixed(2)}`; }
       <div class="badge">MVP Paso 2</div>
       <h1>Catálogo (USD / VES)</h1>
       <p style="color:var(--muted)">
-        {tasa
-          ? `Tasa Binance (EMA): ${tasa.toLocaleString('es-VE', { maximumFractionDigits: 2 })} VES`
+        {tasaLabel
+          ? `Tasa Binance (EMA): ${tasaLabel}`
           : "Tasa no disponible"}
       </p>
     </div>
@@ -54,16 +70,22 @@ function fmtUsd(n: number) { return `$${n.toFixed(2)}`; }
   <main class="container card">
     <table class="table">
       <thead>
-        <tr><th>SKU</th><th>Producto</th><th>Presentación</th><th>USD</th><th>VES</th></tr>
+        <tr>
+          <th>SKU</th>
+          <th>Producto</th>
+          <th>Presentación</th>
+          <th>USD</th>
+          <th>VES</th>
+        </tr>
       </thead>
       <tbody>
         {products.map((p) => {
           const usd = Number(p.costBaseUsd) * (1 + Number(p.margin));
-          const ves = tasa
+          const ves = tasaNum != null
             ? precioVES({
                 costoBaseUSD: Number(p.costBaseUsd),
                 margen: Number(p.margin),
-                tasaVES: tasa,
+                tasaVES: tasaNum,
               })
             : null;
 
@@ -73,7 +95,7 @@ function fmtUsd(n: number) { return `$${n.toFixed(2)}`; }
               <td>{p.name}</td>
               <td>{p.sizeMl} ml</td>
               <td>{fmtUsd(usd)}</td>
-              <td>{ves ? ves.toLocaleString("es-VE") + " VES" : "—"}</td>
+              <td>{ves != null ? ves.toLocaleString("es-VE") + " VES" : "—"}</td>
             </tr>
           );
         })}
