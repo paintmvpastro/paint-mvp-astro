@@ -4,26 +4,40 @@ import { PrismaClient } from "@prisma/client";
 import { precioVES } from "../lib/pricing";
 
 const prisma = new PrismaClient();
-const BASE_URL = process.env.SITE_URL ?? "http://localhost:4321";
 
+// En prod (Vercel) toma el dominio real del request; en dev usa SITE_URL
+const ORIGIN = (Astro.url && Astro.url.origin) || process.env.SITE_URL || "";
+
+// Productos activos
 const products = await prisma.product.findMany({ where: { active: true } });
 
-const fxRes = await fetch(`${BASE_URL}/api/fx/tasa-ves`);
-const fx = fxRes.ok ? await fxRes.json() : null;
+// Intento de leer tasa; si falla, mostramos “Tasa no disponible” y seguimos
+let fx: any = null;
+try {
+  const fxRes = await fetch(`${ORIGIN}/api/fx/tasa-ves`, { cache: "no-store" });
+  if (fxRes.ok) fx = await fxRes.json();
+} catch (_) {}
 const tasa = fx?.ema ? Number(fx.ema) : null;
 
+// AEO / JSON-LD
 const orgJsonLd = {
   "@context": "https://schema.org",
   "@type": "Organization",
   "name": "Paint Store",
-  "url": BASE_URL,
-  "logo": `${BASE_URL}/logo.svg`,
+  "url": ORIGIN || "https://paint-mvp-astro.vercel.app",
+  "logo": `${ORIGIN || ""}/logo.svg`,
 };
 
 function fmtUsd(n: number) { return `$${n.toFixed(2)}`; }
 ---
-<BaseLayout title="Catálogo — USD & VES" description="Catálogo con precios en USD y VES (tasa Binance EMA)" jsonld={orgJsonLd}>
+<BaseLayout
+  title="Catálogo — USD & VES"
+  description="Catálogo con precios en USD y VES (tasa Binance EMA)"
+  jsonld={orgJsonLd}
+>
+  <!-- Si tu fonts.css está en /public, este path funciona -->
   <link rel="stylesheet" href="/fonts.css" />
+
   <header class="container">
     <span class="logo"></span>
     <div>
