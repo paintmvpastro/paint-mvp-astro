@@ -1,0 +1,90 @@
+---
+import CTAWpp from "../../components/CTAWpp.astro";
+import CalculadoraGalones from "../../components/CalculadoraGalones.jsx";
+import { ServiceSchema, BreadcrumbFachadas } from "../../components/SchemaBlocks.tsx";
+const PAGE = {
+  title: "Pinturas para Fachadas en Caracas (Anti-humedad, Anti-UV)",
+  desc: "Sistema elastomérico transpirable con biocidas. Rendimiento ≥ 110–130 m²/galón por mano. Entrega 24–48 h en obra.",
+  slug: "/soluciones/fachadas"
+};
+---
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>{PAGE.title}</title>
+    <meta name="description" content={PAGE.desc} />
+
+    <ServiceSchema 
+      name="Suministro de pintura para fachadas en Caracas"
+      areaServed={["Libertador","Chacao","Baruta","Sucre","El Hatillo"]}
+      url={Astro.url.toString()}
+    />
+    <BreadcrumbFachadas currentUrl={Astro.url.toString()}/>
+  </head>
+  <body class="max-w-7xl mx-auto px-4 py-10">
+    <header class="mb-8">
+      <h1 class="text-3xl font-bold">{PAGE.title}</h1>
+      <p class="mt-2 text-neutral-700">{PAGE.desc}</p>
+    </header>
+
+    <section class="grid gap-6 md:grid-cols-2 mb-10">
+      <div>
+        <h2 class="text-xl font-semibold">Problema local</h2>
+        <p>Caracas combina humedad alta, lluvias y UV. Si el sistema no transpira, aparecen ampollas y descascarado.</p>
+        <ul class="list-disc pl-5 mt-3">
+          <li>Sellador anti-salitre</li>
+          <li>Acrílico elastomérico con biocidas anti-hongos</li>
+          <li>Permeabilidad al vapor + resistencia UV</li>
+        </ul>
+      </div>
+      <div class="rounded-lg border p-4">
+        <h3 class="font-semibold">Sistema recomendado</h3>
+        <ol class="list-decimal pl-5 mt-2">
+          <li>Primer anti-salitre</li>
+          <li>Intermedia acrílica elastomérica (42–50% sólidos)</li>
+          <li>Acabado según exposición (mate/satinado)</li>
+        </ol>
+        <p class="mt-3 text-sm text-neutral-600">
+          Rendimiento típico: <b>110–130 m²/galón por mano</b>. Nº de manos: 2–3.
+        </p>
+      </div>
+    </section>
+
+    <section class="mb-10">
+      <h3 class="text-lg font-semibold">Comparativa (TCO 2–5 años)</h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm border">
+          <thead class="bg-neutral-100">
+            <tr>
+              <th class="p-2 text-left">Plan</th>
+              <th class="p-2 text-left">m²/gal/mano</th>
+              <th class="p-2 text-left">% Sólidos</th>
+              <th class="p-2 text-left">VOC (g/L)</th>
+              <th class="p-2 text-left">Ciclo repintado</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="p-2">Economy</td><td class="p-2">95–110</td><td class="p-2">38–42%</td><td class="p-2">≤150</td><td class="p-2">~2 años</td></tr>
+            <tr class="bg-neutral-50"><td class="p-2">Pro</td><td class="p-2">110–130</td><td class="p-2">42–48%</td><td class="p-2">≤120</td><td class="p-2">~3–4 años</td></tr>
+            <tr><td class="p-2">Premium</td><td class="p-2">130–150</td><td class="p-2">48–52%</td><td class="p-2">≤80</td><td class="p-2">~5 años</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="mb-10">
+      <h3 class="text-lg font-semibold">Calcula galones para tu obra</h3>
+      <CalculadoraGalones client:load />
+    </section>
+
+    <section class="mb-16">
+      <h3 class="text-lg font-semibold">Casos en Caracas</h3>
+      <p class="text-sm text-neutral-600">Pronto: antes/después y métricas reales.</p>
+      <a class="underline mt-3 inline-block" href="/docs/fachadas-ficha-tecnica.pdf" download>
+        Descargar Ficha Técnica (PDF)
+      </a>
+    </section>
+
+    <CTAWpp />
+  </body>
+</html>

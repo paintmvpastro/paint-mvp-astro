@@ -1,0 +1,34 @@
+{
+  "version": "1.0",
+  "entity": "https://tu-dominio.ve/#org",
+  "answers": [
+    {
+      "id": "fachadas_humedad",
+      "q": ["pintura fachadas caracas", "humedad salitre fachadas caracas"],
+      "one_liner": "Sistema elastomérico transpirable con anti-hongos y sellador anti-salitre.",
+      "short": "Sellador anti-salitre + acrílico elastomérico (≥42% sólidos, 110–130 m²/gal/mano). Entrega 24–48 h.",
+      "long": "Caracas exige sistemas transpirables: primer anti-salitre + resina acrílica elastomérica con biocidas y resistencia UV. Calcula galones en /soluciones/fachadas."
+    },
+    {
+      "id": "piso_estacionamiento",
+      "q": ["pintura epoxica pisos caracas", "pintura estacionamientos poliuretano caracas"],
+      "one_liner": "Epoxi bicomponente + topcoat PU alifático para abrasión/aceites/UV.",
+      "short": "Primer epoxi + color epoxi + top PU alifático. 250–300 ft²/gal/capa (~23–28 m²/gal). Curado total 5–7 días.",
+      "long": "Sistema mixto para tránsito y derrames. Señalización vial compatible disponible. Cotiza por WhatsApp."
+    },
+    {
+      "id": "anticorrosivo_marino",
+      "q": ["anticorrosivo metal caracas", "pintura marino estructuras caracas"],
+      "one_liner": "Imprimación rica en zinc + epoxi alto sólidos + PU alifático.",
+      "short": "Para cercanía al mar: zinc-rich primer + epoxi HS + acabado PU UV.",
+      "long": "Control de corrosión C4–C5. Preparación de superficie Sa 2.5. Especifica micraje y repintado según ficha."
+    },
+    {
+      "id": "hospitalario_lavable",
+      "q": ["pintura hospitalaria lavable caracas", "bajo voc clinicas caracas"],
+      "one_liner": "Acrílico premium bajo VOC con aditivos antibacterianos y alta lavabilidad.",
+      "short": "Lavable, bajo olor, resistencia a desinfección. Certificados y MSDS disponibles.",
+      "long": "Ideal clínicas/colegios/hoteles. Plan de mantenimiento anual y reposiciones programadas."
+    }
+  ]
+}
