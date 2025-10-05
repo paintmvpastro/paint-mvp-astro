@@ -1,210 +1,215 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { APIRoute } from "astro";
-import { PrismaClient } from "@prisma/client";
-const prisma = new PrismaClient();
 
-/* ---------- Utilidades ---------- */
-
-// Formato venezolano a 2 decimales
-const fmtVE2 = (n: number) =>
-  n.toLocaleString("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-/** Parse robusto de precios VES como los de Binance.
- * Acepta: 293.79, 293,79, 293.200, 293,200.50, "Bs 293.79", "293 804,689", etc.
- * Regla clave: cuando hay 2–3 dígitos tras el punto/coma y no hay el otro separador,
- * lo tomamos como DECIMAL, no como miles (e.g. 293.200 = 293,20).
+/**
+ * Util: redondear a 2 decimales como cadena -> número
  */
-function parseVESPrice(input: unknown): number {
-  let s = String(input ?? "").trim();
+const round2 = (v: number | null | undefined) =>
+  typeof v === "number" && Number.isFinite(v) ? Math.round(v * 100) / 100 : null;
 
-  // Quitar símbolos/espacios
-  s = s.replace(/[^\d.,\s]/g, "").replace(/\s+/g, "");
-
-  const hasDot = s.includes(".");
-  const hasComma = s.includes(",");
-
-  // Patrones que indican decimal con 2–3 dígitos
-  const looksDotDecimal = /^\d{1,3}\.\d{2,3}$/.test(s);    // 293.20 / 293.200
-  const looksComDecimal = /^\d{1,3},\d{2,3}$/.test(s);     // 293,20 / 293,200
-
-  // Patrones de miles
-  const dotThousands   = /^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s);
-  const commaThousands = /^\d{1,3}(,\d{3})(\.\d+)?$/.test(s);
-
-  if (hasDot && hasComma) {
-    // El separador más a la derecha manda como decimal
-    const lastDot = s.lastIndexOf(".");
-    const lastComma = s.lastIndexOf(",");
-    if (lastComma > lastDot) {
-      // ',' decimal
-      s = s.replace(/\./g, "").replace(",", ".");
-    } else {
-      // '.' decimal
-      s = s.replace(/,/g, "");
-    }
-  } else if (looksComDecimal) {
-    s = s.replace(",", ".");
-  } else if (looksDotDecimal) {
-    // Dejar el punto como decimal
-  } else if (dotThousands) {
-    s = s.replace(/\./g, "").replace(",", ".");
-  } else if (commaThousands) {
-    s = s.replace(/,/g, "");
-  } else if (hasComma && !hasDot) {
-    s = s.replace(",", ".");
-  }
-
-  const n = Number(s);
-  if (!Number.isFinite(n) || n <= 0) throw new Error(`Precio inválido: ${input}`);
-  return n;
+/**
+ * Consenso: toma la mediana de los precios disponibles (evita outliers).
+ * Si solo hay uno, usa ese.
+ */
+function consensusFrom(prices: number[]): number | null {
+  const xs = prices.filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
+  if (xs.length === 0) return null;
+  const mid = Math.floor(xs.length / 2);
+  return xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2;
 }
 
-function median(nums: number[]): number {
-  const a = [...nums].sort((x, y) => x - y);
-  const m = Math.floor(a.length / 2);
-  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+/**
+ * EMA “sin estado”: si no tenemos histórico persistente,
+ * la mejor aproximación es devolver NOW o un EMA trivial.
+ * Aquí lo hacemos opcional mediante `useEMA`.
+ */
+function emaNow(now: number | null, _alpha: number): number | null {
+  // sin buffer de histórico, devolver NOW
+  return now;
 }
 
-/** Promedio ponderado por USDT negociables (WMA) de los 3 más baratos */
-function wmaTop3Ascending(prices: number[], qtys: number[]): number {
-  const n = Math.min(3, prices.length);
-  let wSum = 0, w = 0;
-  for (let i = 0; i < n; i++) {
-    const q = Math.max(0, Number(qtys[i] ?? 0));
-    if (q > 0) { wSum += prices[i] * q; w += q; }
-  }
-  if (w === 0) return prices.slice(0, n).reduce((a, b) => a + b, 0) / n;
-  return wSum / w;
-}
+/**
+ * ------ FETCHERS ------
+ * Todos devuelven (precio:number|null, error?: {status:number, message:string})
+ */
 
-/* ---------- Binance P2P ---------- */
-
-const BINANCE_URL = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search";
-const HEADERS: Record<string, string> = {
-  accept: "application/json, text/plain, */*",
-  "content-type": "application/json",
-  "user-agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  clienttype: "web",
-  lang: "es",
-  origin: "https://p2p.binance.com",
-  referer: "https://p2p.binance.com/es/trade/all-payments/USDT?fiat=VES",
-};
-
-type Payload = {
-  page: number; rows: number; publisherType: null | string;
-  asset: "USDT"; tradeType: "BUY" | "SELL"; fiat: "VES"; transAmount?: string;
-};
-
-const PAYLOADS: Payload[] = [
-  { page: 1, rows: 20, publisherType: null, asset: "USDT", tradeType: "BUY",  fiat: "VES", transAmount: "50" },
-  { page: 1, rows: 20, publisherType: null, asset: "USDT", tradeType: "BUY",  fiat: "VES" },
-  { page: 1, rows: 20, publisherType: null, asset: "USDT", tradeType: "SELL", fiat: "VES" },
-];
-
-async function tryFetchOnce(p: Payload): Promise<{ prices: number[]; qtys: number[] }> {
-  const res = await fetch(BINANCE_URL, { method: "POST", headers: HEADERS, body: JSON.stringify(p) });
-  if (!res.ok) throw new Error(`Binance ${res.status}`);
-  const data: any = await res.json();
-
-  const rows = ((data?.data ?? []) as any[])
-    .map((x: any) => {
-      const price = parseVESPrice(x?.adv?.price);
-      const qty   = Number(x?.adv?.tradableQuantity ?? x?.adv?.surplusAmount ?? 0);
-      return { price, qty };
-    })
-    .filter(r => Number.isFinite(r.price) && r.price > 0)
-    .sort((a, b) => a.price - b.price);
-
-  return { prices: rows.map(r => r.price), qtys: rows.map(r => r.qty) };
-}
-
-async function fetchBinanceWMAorMedian(maxRetries = 3): Promise<number> {
-  let lastErr: unknown = null;
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    for (const p of PAYLOADS) {
-      try {
-        const { prices, qtys } = await tryFetchOnce(p);
-        if (prices.length >= 3) {
-          const wma = wmaTop3Ascending(prices, qtys);
-          if (Number.isFinite(wma) && wma > 0) return wma;
-        }
-        if (prices.length) return median(prices);
-      } catch (e) { lastErr = e; }
-      await new Promise(r => setTimeout(r, 250));
-    }
-    await new Promise(r => setTimeout(r, 400 * attempt));
-  }
-  throw new Error((lastErr as Error | undefined)?.message || "Sin precios VES");
-}
-
-/* ---------- API ---------- */
-
-export const GET: APIRoute = async ({ url }) => {
+async function fetchBinanceVES(params: {
+  side: "buy" | "sell";
+  bank?: string;
+  amount?: number;
+}): Promise<{ price: number | null; error?: { status: number; message: string } }> {
   try {
-    const qMock   = url.searchParams.get("mock");
-    const envMock = process.env.DEV_FORCE_RATE;
-
-    // Tasa cruda en VES/USDT (~293.xx)
-    const raw: number = qMock ? Number(qMock)
-                      : envMock ? Number(envMock)
-                      : await fetchBinanceWMAorMedian(3);
-
-    // EMA 60/40 con salvaguardas (ignora outliers y resetea si hay salto enorme)
-    const last = await prisma.rate.findFirst({ orderBy: { createdAt: "desc" } });
-    const prev = last ? Number(last.ema) : null;
-
-    const sane = (n: unknown) => {
-      const x = Number(n);
-      return Number.isFinite(x) && x > 10 && x < 5000; // rango razonable
+    // Binance P2P (oficial usado por el sitio). Suele aceptar server-side sin cookies.
+    const url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search";
+    const payload = {
+      page: 1,
+      rows: 10,
+      publisherType: null,
+      asset: "USDT",
+      tradeType: params.side.toUpperCase(), // BUY o SELL
+      fiat: "VES",
+      transAmount: params.amount ? String(params.amount) : "",
+      // Nota: el filtro por banco se hace vía payTypes, pero no todos los bancos venezolanos están mapeados.
+      payTypes: params.bank ? [params.bank] : [],
+      countries: [],
+      proMerchantAds: false,
     };
 
-    const ema =
-      !sane(prev) || !sane(raw) || Math.abs(Number(prev) - Number(raw)) > 500
-        ? Number(raw)
-        : 0.6 * Number(raw) + 0.4 * Number(prev);
-
-    const saved = await prisma.rate.create({
-      data: { raw, ema, source: qMock ? "Mock manual" : envMock ? "DEV_FORCE_RATE" : "Binance P2P" },
+    const r = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        // Estos headers ayudan cuando el endpoint se pone quisquilloso:
+        "accept-language": "es-ES,es;q=0.9",
+        "cache-control": "no-cache",
+        "clienttype": "web",
+      },
+      body: JSON.stringify(payload),
     });
 
-    // Formatos listos para UI
-    const tasaFmt2     = `${fmtVE2(Number(saved.raw))} VES`;
-    const emaFmt2      = `${fmtVE2(Number(saved.ema))} VES`;
-    const tasaFmt2Usdt = `${fmtVE2(Number(saved.raw))} VES/USDT`;
-    const emaFmt2Usdt  = `${fmtVE2(Number(saved.ema))} VES/USDT`;
-
-    return new Response(
-      JSON.stringify({
-        tasa: Number(saved.raw),
-        ema: Number(saved.ema),
-        fuente: saved.source,
-        ts: saved.createdAt,
-        tasaFmt2, emaFmt2, tasaFmt2Usdt, emaFmt2Usdt,
-      }),
-      { status: 200, headers: { "content-type": "application/json" } }
-    );
-  } catch (e: any) {
-    // Fallback a cache si existe
-    const last = await prisma.rate.findFirst({ orderBy: { createdAt: "desc" } });
-    if (last) {
-      return new Response(
-        JSON.stringify({
-          tasa: Number(last.raw),
-          ema: Number(last.ema),
-          fuente: (last.source || "cache") + " (cache)",
-          ts: last.createdAt,
-          warning: e?.message || "FX error",
-          tasaFmt2: `${fmtVE2(Number(last.raw))} VES`,
-          emaFmt2: `${fmtVE2(Number(last.ema))} VES`,
-          tasaFmt2Usdt: `${fmtVE2(Number(last.raw))} VES/USDT`,
-          emaFmt2Usdt: `${fmtVE2(Number(last.ema))} VES/USDT`,
-        }),
-        { status: 200, headers: { "content-type": "application/json" } }
-      );
+    if (!r.ok) {
+      return { price: null, error: { status: r.status, message: await r.text() } };
     }
-    return new Response(
-      JSON.stringify({ error: e?.message || "FX error (sin cache)" }),
-      { status: 500, headers: { "content-type": "application/json" } }
-    );
+
+    const data: any = await r.json();
+    const adv = data?.data?.[0]?.adv;
+    const price = adv?.price ? Number(adv.price) : null;
+    return { price: round2(price) };
+  } catch (e: any) {
+    return { price: null, error: { status: 0, message: String(e?.message || e) } };
   }
+}
+
+async function fetchOKXVES(params: {
+  side: "buy" | "sell";
+  amount?: number;
+}): Promise<{ price: number | null; error?: { status: number; message: string } }> {
+  try {
+    // OKX ha cambiado varias veces su endpoint público de P2P.
+    // Prueba 1 (clásico). Si devuelve 404, atrapamos y reportamos:
+    const side = params.side === "buy" ? "sell" : "buy"; // en libros, lado opuesto del usuario
+    const url =
+      "https://www.okx.com/v3/c2c/tradingOrders/books" +
+      `?quoteCurrency=ves&baseCurrency=usdt&side=${side}` +
+      `&paymentMethod=&userType=all&hideOverseasVerificationAds=false&sortType=price_asc&limit=10&offset=0`;
+
+    const r = await fetch(url, {
+      headers: {
+        "accept-language": "es-ES,es;q=0.9",
+        "cache-control": "no-cache",
+      },
+    });
+
+    if (!r.ok) {
+      return { price: null, error: { status: r.status, message: await r.text() } };
+    }
+
+    const data: any = await r.json();
+    // Estructuras de OKX varían. Intenta varias rutas conocidas:
+    const first =
+      data?.data?.[0] ??
+      data?.data?.buy?.[0] ??
+      data?.data?.sell?.[0] ??
+      data?.data?.orders?.[0];
+
+    const price =
+      first?.price ??
+      first?.unitPrice ??
+      first?.quotePrice ??
+      (typeof first === "object" && first
+        ? Number(first.price || first.unitPrice || first.quotePrice)
+        : null);
+
+    return { price: round2(Number(price)) };
+  } catch (e: any) {
+    return { price: null, error: { status: 0, message: String(e?.message || e) } };
+  }
+}
+
+async function fetchBybitVES(params: {
+  side: "buy" | "sell";
+  amount?: number;
+}): Promise<{ price: number | null; error?: { status: number; message: string } }> {
+  try {
+    // Bybit también rota endpoints. Este suele funcionar server-side.
+    // side=1 BUY, side=0 SELL (en muchos endpoints de Bybit es así).
+    const sideNum = params.side === "buy" ? 1 : 0;
+    const url =
+      "https://api2.bybit.com/fiat/otc/item/online" +
+      `?tokenId=USDT&currencyId=VES&side=${sideNum}&payment=0&size=10&page=1` +
+      (params.amount ? `&amount=${params.amount}` : "");
+
+    const r = await fetch(url, {
+      headers: {
+        "accept-language": "es-ES,es;q=0.9",
+        "cache-control": "no-cache",
+      },
+    });
+
+    if (!r.ok) {
+      return { price: null, error: { status: r.status, message: await r.text() } };
+    }
+
+    const data: any = await r.json();
+    const first = data?.result?.items?.[0];
+    const price = first?.price ? Number(first.price) : null;
+    return { price: round2(price) };
+  } catch (e: any) {
+    return { price: null, error: { status: 0, message: String(e?.message || e) } };
+  }
+}
+
+export const prerender = false;
+
+export const GET: APIRoute = async ({ url }) => {
+  // --- Parámetros (con defaults compatibles con tus capturas) ---
+  const side = (url.searchParams.get("side") || "buy").toLowerCase() as "buy" | "sell";
+  const bank = (url.searchParams.get("bank") || "").trim();
+  const min = Number(url.searchParams.get("min") ?? "0");
+  const n = Number(url.searchParams.get("n") ?? "0");
+  const alpha = Number(url.searchParams.get("alpha") ?? "0.2");
+  const pretty = url.searchParams.has("pretty");
+  const useEMA = (url.searchParams.get("useEMA") ?? "1") !== "0"; // useEMA=0 -> desactivar EMA
+
+  // --- Llamadas paralelas a los exchanges ---
+  const [bRes, oRes, yRes] = await Promise.all([
+    fetchBinanceVES({ side, bank, amount: min || undefined }),
+    fetchOKXVES({ side, amount: min || undefined }),
+    fetchBybitVES({ side, amount: min || undefined }),
+  ]);
+
+  const sources: Record<"binance_now" | "okx_now" | "bybit_now", number | null> = {
+    binance_now: bRes.price,
+    okx_now: oRes.price,
+    bybit_now: yRes.price,
+  };
+
+  const available = Object.values(sources).filter(
+    (v): v is number => typeof v === "number" && Number.isFinite(v),
+  );
+
+  const now = round2(consensusFrom(available));
+  const ema = useEMA ? round2(emaNow(now, alpha)) : now;
+  const rangeLow = now;
+  const rangeHigh = now;
+
+  const body = {
+    ok: true as const,
+    params: { side, bank, min, n, alpha },
+    sources,
+    consensus: { now, ema, rangeLow, rangeHigh },
+    meta: {
+      errors: {
+        binance: bRes.error ?? {},
+        okx: oRes.error ?? {},
+        bybit: yRes.error ?? {},
+      },
+    },
+    ts: new Date().toISOString(),
+  };
+
+  return new Response(pretty ? JSON.stringify(body, null, 2) : JSON.stringify(body), {
+    headers: { "content-type": "application/json; charset=utf-8" },
+    status: 200,
+  });
 };
