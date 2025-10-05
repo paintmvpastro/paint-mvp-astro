@@ -5,38 +5,40 @@ import { precioVES } from "../lib/pricing";
 
 const prisma = new PrismaClient();
 
-// En prod (Vercel) toma el dominio real; en dev usa SITE_URL
 const ORIGIN =
   (Astro.url && Astro.url.origin) ||
   (import.meta.env.SITE_URL as string | undefined) ||
   "";
 
-// Productos activos
 const products = await prisma.product.findMany({ where: { active: true } });
 
-// Llamamos a la tasa (sin caché) y usamos los campos ya formateados que expone el API
+const toNum = (v: any) => (typeof v === "number" ? v : Number(v));
+const safeNum = (v: any): number | null => {
+  const n = toNum(v);
+  return Number.isFinite(n) ? n : null;
+};
+
 let fx: any = null;
 try {
   const fxRes = await fetch(`${ORIGIN}/api/fx/tasa-ves`, { cache: "no-store" });
   if (fxRes.ok) fx = await fxRes.json();
 } catch (_) {}
 
-// Número para cálculos (EMA si existe; si no, raw)
-const tasaNum: number | null = Number.isFinite(Number(fx?.ema))
-  ? Number(fx.ema)
-  : Number.isFinite(Number(fx?.tasa))
-  ? Number(fx.tasa)
-  : null;
+const c = fx?.consensus ?? {};
+const consensoNow = safeNum(c.now);
+const consensoEMA = safeNum(c.ema);
+const rangeLow = safeNum(c.rangeLow);
+const rangeHigh = safeNum(c.rangeHigh);
 
-// Texto formateado exacto: "293,10 VES/USDT"
+const tasaNum: number | null = consensoEMA ?? consensoNow ?? null;
+
+function formatVES(n?: number | null) {
+  if (typeof n !== "number" || !Number.isFinite(n)) return "—";
+  return n.toLocaleString("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 const tasaLabel: string | null =
-  typeof fx?.emaFmt2Usdt === "string"
-    ? fx.emaFmt2Usdt
-    : tasaNum != null
-    ? `${tasaNum.toLocaleString("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} VES/USDT`
-    : null;
+  tasaNum != null ? `${formatVES(tasaNum)} VES/USDT` : null;
 
-// AEO / JSON-LD
 const orgJsonLd = {
   "@context": "https://schema.org",
   "@type": "Organization",
@@ -49,20 +51,113 @@ function fmtUsd(n: number) { return `$${n.toFixed(2)}`; }
 ---
 <BaseLayout
   title="Catálogo — USD & VES"
-  description="Catálogo con precios en USD y VES (tasa Binance EMA)"
+  description="Catálogo con precios en USD y VES (consenso USDT↔VES con EMA y rango entre exchanges)"
   jsonld={orgJsonLd}
 >
   <link rel="stylesheet" href="/fonts.css" />
 
-  <header class="container">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d10;
+      --fg: #e5e7eb;
+      --muted: #9ca3af;
+      --card: #111318;
+      --card-2: #0f141a;
+      --border: #1f2937;
+      --accent: #22d3ee;
+      --accent-weak: #164e63;
+      --table-stripe: #0e1116;
+    }
+    html, body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+      line-height: 1.45;
+    }
+    .container {
+      max-width: 1100px;
+      margin: 1.2rem auto;
+      padding: 0 1rem;
+    }
+    .logo { display:block; width:52px; height:52px; background: var(--accent-weak); border-radius: 12px; }
+    .badge {
+      display:inline-block; font-size:.75rem; color:#cffafe; background: color-mix(in oklab, var(--accent) 18%, transparent);
+      padding:.25rem .5rem; border:1px solid var(--accent-weak); border-radius:999px;
+    }
+    h1 { margin:.25rem 0 .25rem 0; font-size:1.6rem; letter-spacing:.2px; }
+    p { color: var(--muted); margin: 0; }
+
+    .card {
+      background: linear-gradient(180deg, var(--card), var(--card-2));
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: .5rem .75rem;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      overflow: hidden;
+      border-radius: 12px;
+    }
+    .table thead th {
+      text-align: left;
+      font-weight: 600;
+      font-size: .9rem;
+      color: #cbd5e1;
+      background: #0f172a;
+      border-bottom: 1px solid var(--border);
+      padding: .75rem .8rem;
+    }
+    .table tbody td {
+      padding: .7rem .8rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .table tbody tr:nth-child(2n) td {
+      background: var(--table-stripe);
+    }
+    .table tbody tr:hover td {
+      background: color-mix(in oklab, var(--accent) 6%, transparent);
+    }
+    .band {
+      display:flex; flex-wrap:wrap; gap:.5rem .75rem; align-items:baseline;
+      padding:.6rem .8rem;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background: color-mix(in oklab, var(--card) 85%, #0b0b0b 15%);
+      font-size:.95rem;
+    }
+    .band strong { color:#e2e8f0; }
+    .band small { color: var(--muted); }
+  </style>
+
+  <header class="container" style="display:grid; gap:.75rem;">
     <span class="logo"></span>
+
+    <!-- Banda de tasa: Consenso + Rango + EMA -->
+    <div class="band">
+      <strong>Tasa consenso USDT↔VES:</strong>
+      <span style="font-variant-numeric: tabular-nums;">
+        {tasaLabel ?? "No disponible"}
+      </span>
+      <small>
+        {rangeLow != null && rangeHigh != null
+          ? `(rango ${formatVES(rangeLow)}–${formatVES(rangeHigh)} Bs · EMA ${formatVES(consensoEMA)} Bs)`
+          : `(EMA ${formatVES(consensoEMA)} Bs)`
+        }
+      </small>
+    </div>
+
     <div>
       <div class="badge">MVP Paso 2</div>
       <h1>Catálogo (USD / VES)</h1>
-      <p style="color:var(--muted)">
+      <p>
         {tasaLabel
-          ? `Tasa Binance (EMA): ${tasaLabel}`
-          : "Tasa no disponible"}
+          ? `Precios VES calculados con EMA del consenso`
+          : "Tasa no disponible — mostrando USD"}
       </p>
     </div>
   </header>
@@ -95,7 +190,7 @@ function fmtUsd(n: number) { return `$${n.toFixed(2)}`; }
               <td>{p.name}</td>
               <td>{p.sizeMl} ml</td>
               <td>{fmtUsd(usd)}</td>
-              <td>{ves != null ? ves.toLocaleString("es-VE") + " VES" : "—"}</td>
+              <td>{ves != null ? `${ves.toLocaleString("es-VE")} VES` : "—"}</td>
             </tr>
           );
         })}
